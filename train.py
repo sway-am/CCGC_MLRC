@@ -21,7 +21,13 @@ args = parser.parse_args()
 #load data
 adj, features, true_labels, idx_train, idx_val, idx_test = load_data(args.dataset)
 adj = adj - sp.dia_matrix((adj.diagonal()[np.newaxis, :], [0]), shape=adj.shape)
-adj.eliminate_zeros()
+
+#for other than .npy
+# adj.eliminate_zeros()
+
+# For .npy file type
+np.delete(adj, np.where(adj == 0))
+
 
 # Laplacian Smoothing
 adj_norm_s = preprocess_graph(adj, args.t, norm='sym', renorm=True)
@@ -102,7 +108,16 @@ for seed in range(10):
                 S_diag = torch.diag_embed(torch.diag(S))
                 S = S - S_diag
                 neg_contrastive = F.mse_loss(S, torch.zeros_like(S))
-                loss = pos_contrastive + args.alpha * neg_contrastive
+                #loss 
+                loss = pos_contrastive + args.alpha*neg_contrastive
+
+                #loss w/o neg
+                # loss = pos_contrastive
+
+                
+                # loss w/o pos
+                # loss =  neg_contrastive
+                
 
         else:
             S = z1 @ z2.T
