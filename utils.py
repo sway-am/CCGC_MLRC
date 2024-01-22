@@ -13,6 +13,100 @@ from sklearn.metrics import adjusted_rand_score as ari_score
 from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.metrics.cluster import normalized_mutual_info_score as nmi_score
 
+from sklearn.decomposition import PCA
+
+
+## To load AMAP graph data from npy file format ##
+
+def load_graph_data(dataset_name):
+    """
+    load graph data
+    :param dataset_name: the name of the dataset
+    :param show_details: if show the details of dataset
+    - dataset name
+    - features' shape
+    - labels' shape
+    - adj shape
+    - edge num
+    - category num
+    - category distribution
+    :return: the features, labels and adj
+    """
+    load_path = "/content/CCGC/dataset/" + dataset_name
+    feat = np.load(load_path+"_feat.npy", allow_pickle=False)
+    #feat = np.load("/content/CCGC/amap_feat.npy",allow_pickle=False)
+    label = np.load(load_path+"_label.npy", allow_pickle=False)
+    # label = np.load("/content/CCGC/amap_label.npy",allow_pickle=False)
+    adj = np.load(load_path+"_adj.npy", allow_pickle=False)
+    # adj = np.load("/content/CCGC/amap_adj.npy",allow_pickle=False)
+    if True:
+        print("++++++++++++++++++++++++++++++")
+        print("---details of graph dataset---")
+        print("++++++++++++++++++++++++++++++")
+        print("dataset name:   ", dataset_name)
+        print("feature shape:  ", feat.shape)
+        print("label shape:    ", label.shape)
+        print("adj shape:      ", adj.shape)
+        print("undirected edge num:   ", int(np.nonzero(adj)[0].shape[0]/2))
+        print("category num:          ", max(label)-min(label)+1)
+        print("category distribution: ")
+        for i in range(max(label)+1):
+            print("label", i, end=":")
+            print(len(label[np.where(label == i)]))
+        print("++++++++++++++++++++++++++++++")
+    #adj = np.load("/content/CCGC/data/amap_adj.npy",allow_pickle=False)
+
+    # X pre-processing
+    pca = PCA(n_components=100)
+    feat = pca.fit_transform(feat)
+    return feat, label, adj
+
+
+
+def load_data_networks(dataset_str):
+    """Read the data and preprocess the task information."""
+    data_path = "/content/CCGC/data"
+    ####### 
+    dataset_G = data_path+"/{}-airports.edgelist".format(dataset_str)
+    dataset_L = data_path+"/labels-{}-airports.txt".format(dataset_str)
+    ####### brazil(BAT)
+    #dataset_G = "/content/CCGC/data/brazil-airports.edgelist"
+    #dataset_L = "/content/CCGC/data/labels-brazil-airports.txt"
+    ####### EAT
+    #dataset_G = "/content/CCGC/data/europe-airports.edgelist"
+    #dataset_L = "/content/CCGC/data/labels-europe-airports.txt"
+    ######## USA
+    #dataset_G = "/content/CCGC/data/usa-airports.edgelist"
+    #dataset_L = "/content/CCGC/data/labels-usa-airports.txt"
+    ########
+    label_raw, nodes = [], []
+    with open(dataset_L, 'r') as file_to_read:
+        while True:
+            lines = file_to_read.readline()
+            if not lines:
+                break
+            node, label = lines.split()
+            if label == 'label': continue
+            label_raw.append(int(label))
+            nodes.append(int(node))
+    label_raw = np.array(label_raw)
+    print(label_raw)
+    G = nx.read_edgelist(open(dataset_G, 'rb'), nodetype=int)
+    adj = nx.adjacency_matrix(G, nodelist=nodes)
+
+     # Ensure 'adj' is a SciPy CSR sparse matrix
+    adj = sp.csr_matrix(adj)
+    
+    # task information
+    degreeNode = np.sum(adj, axis=1).A1
+    degreeNode = degreeNode.astype(np.int32)
+    features = np.zeros((degreeNode.size, degreeNode.max()+1))
+    features[np.arange(degreeNode.size),degreeNode] = 1
+    features = sp.csr_matrix(features)
+
+    return adj, features, label_raw
+
+
 
 def sample_mask(idx, l):
     """Create mask."""
@@ -28,6 +122,13 @@ def load_data(dataset):
     if dataset == 'wiki':
         adj, features, label = load_wiki()
         return adj, features, label, 0, 0, 0
+    if dataset == 'brazil' or dataset == "europe" or dataset == "usa":
+        adj, features, label = load_data_networks(dataset)
+        return adj, features, label, 0, 0, 0
+    if dataset == 'amap':
+        feat,label,adj = load_graph_data(dataset)
+        return adj, feat, label, 0, 0, 0
+
 
     for i in range(len(names)):
         '''
@@ -269,9 +370,7 @@ def cluster_acc(y_true, y_pred):
                 ind += 1
     l2 = list(set(y_pred))
     numclass2 = len(l2)
-    if num_class1 != numclass2:
-        print('error')
-        return
+    
     cost = np.zeros((num_class1, numclass2), dtype=int)
     for i, c1 in enumerate(l1):
         mps = [i1 for i1, e1 in enumerate(y_true) if e1 == c1]
@@ -279,7 +378,7 @@ def cluster_acc(y_true, y_pred):
             mps_d = [i1 for i1 in mps if y_pred[i1] == c2]
             cost[i][j] = len(mps_d)
     m = Munkres()
-    cost = cost.__neg__().tolist()
+    cost = cost._neg_().tolist()
     indexes = m.compute(cost)
     new_predict = np.zeros(len(y_pred))
     for i, c in enumerate(l1):
@@ -309,41 +408,7 @@ def eva(y_true, y_pred, show_details=True):
     return acc, nmi, ari, f1
 
 
-def load_graph_data(dataset_name, show_details=False):
-    """
-    load graph data
-    :param dataset_name: the name of the dataset
-    :param show_details: if show the details of dataset
-    - dataset name
-    - features' shape
-    - labels' shape
-    - adj shape
-    - edge num
-    - category num
-    - category distribution
-    :return: the features, labels and adj
-    """
-    load_path = "dataset/" + dataset_name + "/" + dataset_name
-    feat = np.load(load_path+"_feat.npy", allow_pickle=True)
-    label = np.load(load_path+"_label.npy", allow_pickle=True)
-    adj = np.load(load_path+"_adj.npy", allow_pickle=True)
-    if show_details:
-        print("++++++++++++++++++++++++++++++")
-        print("---details of graph dataset---")
-        print("++++++++++++++++++++++++++++++")
-        print("dataset name:   ", dataset_name)
-        print("feature shape:  ", feat.shape)
-        print("label shape:    ", label.shape)
-        print("adj shape:      ", adj.shape)
-        print("undirected edge num:   ", int(np.nonzero(adj)[0].shape[0]/2))
-        print("category num:          ", max(label)-min(label)+1)
-        print("category distribution: ")
-        for i in range(max(label)+1):
-            print("label", i, end=":")
-            print(len(label[np.where(label == i)]))
-        print("++++++++++++++++++++++++++++++")
 
-    return feat, label, adj
 
 
 def normalize_adj(adj, self_loop=True, symmetry=False):
@@ -397,3 +462,4 @@ def clustering(feature, true_labels, cluster_num):
     predict_labels, dis, initial = kmeans(X=feature, num_clusters=cluster_num, distance="euclidean", device="cuda")
     acc, nmi, ari, f1 = eva(true_labels, predict_labels.numpy(), show_details=False)
     return 100 * acc, 100 * nmi, 100 * ari, 100 * f1, predict_labels.numpy(),dis
+
